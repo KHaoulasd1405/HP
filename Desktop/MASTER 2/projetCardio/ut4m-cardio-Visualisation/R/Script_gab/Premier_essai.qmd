@@ -1,0 +1,10 @@
+```{r}
+data<-read_excel("Ressources/Données complètes UT4M final120419 avec Data cardio.xlsx", sheet = "Tableau_gl")
+```
+
+```{r}
+data
+```
+```{r}
+
+```

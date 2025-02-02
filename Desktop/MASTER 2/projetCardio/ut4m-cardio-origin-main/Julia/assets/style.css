@@ -1,0 +1,146 @@
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 18px;
+    text-align: left;
+}
+
+th, td {
+    padding: 12px 15px;
+    border: 1px solid #ddd;
+}
+
+th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+}
+
+tr:hover {
+    background-color: #f1f1f1;
+}
+
+tr {
+    background-color: white;
+}
+
+#navbar {
+    background-color: #f8f9fa;
+    padding: 0px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+}
+
+#navbar button {
+    flex: 1;
+    margin-right: 0px;
+    height: 100%;
+}
+
+#navbar button:last-child {
+    margin-right: 0px;
+}
+
+#div-container {
+    display: flex;
+    max-height: 100%;
+}
+#div-tab {
+    width: 35%;
+    border: 1px solid black;
+}
+
+#div-tab-nb-participants {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+#div-tab-summary {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+#graph-div {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+#layout-tab-summary {
+    padding: 10px 20px 10px 20px;
+}
+
+#layout-tab-data {
+    padding: 10px 20px 10px 20px;
+}
+
+#div-lm-input {
+    padding: 10px 20px 10px 20px;
+}
+
+#div-params-plot {
+    padding: 10px 20px 10px 20px;
+}
+
+
+
+#div-content-tab {
+    flex: 1;
+    background-color: lightgrey;
+    padding: 10px 20px 10px 20px;
+    width: 60%;
+}
+#div-logo {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+#logo-UT4M, #logo-IM2AG {
+    height: 100px;
+}
+
+#logo-IM2AG {
+    height: 80px;
+    margin-right: 5px;
+    background-color: white;
+}
+
+#title-id {
+    flex-grow: 1;
+    text-align: center;
+}
+#div-header {
+    background-color: grey;
+    border: 1px solid black;
+}
+
+#div-header {
+    background-color: grey;
+    border: 1px solid black;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+    width: 100%;
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table th, .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table td {
+    padding: 12px 15px;
+    border: 1px solid #ddd;
+    font-size: 16px;
+    text-align: left; 
+}
+
+.dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table th {
+    background-color: #f2f2f2;
+    font-weight: bold;
+    text-align: left; 
+}

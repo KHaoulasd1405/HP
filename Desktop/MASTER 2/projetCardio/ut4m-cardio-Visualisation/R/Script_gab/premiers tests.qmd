@@ -1,0 +1,426 @@
+---
+title: "Projet_tut_debut"
+author: "gabriel bour"
+format: html
+editor: visual
+---
+
+```{r}
+library(readxl)
+library(tidyr)
+library(dplyr)
+```
+
+
+```{r, message=FALSE, cache=FALSE, warning=FALSE}
+DATA <- read_excel("ut4m-cardio/Ressources/Données complètes UT4M final120419 avec Data cardio.xlsx", sheet = "Tableau_gl")
+```
+
+On garde uniquement les colonnes qui nous interessent pour le moment
+
+```{r}
+DATA <- DATA[, c(1:5, 267:ncol(DATA))]
+DATA<- DATA %>% select(-`CC VG_PRE`)
+DATA <- DATA %>% rename(VOLOGI_PRE = VOL_OGI_PRE)
+DATA <- DATA %>% rename(VOLODI_PRE = VOL_ODI_PRE)
+
+DATA<- DATA %>% select(1:5, SC, everything())
+```
+
+Maintenant on modifie le jeu de données
+
+
+```{r}
+library(tidyr)
+library(dplyr)
+
+# Supposons que les 6 premières colonnes sont les informations des individus
+# On transforme les colonnes de mesures sur le cœur en les regroupant par variable et temps
+
+df_long <- DATA %>%
+  pivot_longer(
+    cols = 7:ncol(DATA),  # Sélectionner les colonnes des variables du cœur (à partir de la 7e colonne)
+    names_to = c("variable", "temps"),   # Séparer le nom de la variable et le temps
+    names_pattern = "(.*)_(PRE|POST|D_2|D_5|D_10)",  # Pattern pour séparer la variable et le temps
+    values_to = "valeur"
+  ) %>%
+  pivot_wider(
+    names_from = "variable",  # Repasser les variables en colonnes
+    values_from = "valeur"    # Les valeurs associées
+  )
+
+# Le résultat est un tableau où chaque individu apparaît 5 fois (pour chaque temps)
+# avec une seule colonne pour le temps et les 46 variables restent en colonnes.
+
+```
+Variables qu'on veut garder
+
+```{r}
+df_filtered <- df_long %>%
+  select(1:7, VOLOGI, VOLODI, VTDVGI, VTSVGI, FE2D, STDi, STSi)
+```
+
+Supprimer le bug
+```{r}
+# Suppression des lignes où l'index est 2 modulo 6
+df_filtered <- df_filtered[!(seq_len(nrow(df_filtered)) %% 6 == 2), ]
+```
+
+Remplacement de -1 en NA
+
+```{r}
+df_filtered <- df_filtered %>%
+  mutate_all(~replace(., . == -1, NA))
+```
+
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+nb_na <- colSums(is.na(df_filtered[,8:14]))
+barplot(nb_na, main = "nb de données manquantes par varibales")
+
+```
+Maintenant on cherche le nb de na par individus
+```{r}
+# Étape 1 : Calculer le nombre de NA par ligne
+nb_na <- rowSums(is.na(df_filtered[1:395,]))
+
+# Étape 2 : Regroupe 5 lignes par 5 lignes
+nb_na <- sapply(seq(1, length(nb_na), by=5), function(i) {
+  sum(nb_na[i:min(i+4, length(nb_na))])
+})
+```
+
+```{r}
+barplot(nb_na)
+```
+
+```{r}
+library(gridExtra)
+```
+```{r}
+# Variables d'intérêt
+variables <- c("VOLOGI", "VOLODI", "VTDVGI", "VTSVGI", "FE2D", "STDi", "STSi")
+```
+
+mettre en  numérique
+```{r}
+df_filtered[variables] <- lapply(df_filtered[variables], as.numeric)
+```
+
+
+```{r}
+plots <- lapply(variables, function(var) {
+  ggplot(df_filtered, aes_string(x = "temps", y = var, group = "CODE_SUJET", color = "CODE_SUJET")) +
+    geom_line(na.rm = TRUE) +
+    facet_wrap(~ COURSE) +
+    labs(title = paste("Spaghetti Plot de", var),
+         x = "Temps",
+         y = var) +
+    scale_x_discrete(limits = c("PRE", "POST", "D_2", "D_5", "D_10")) + 
+    theme_minimal() +
+    theme(legend.position = "none")
+})
+
+
+print(plots)
+```
+
+prendre avec des pincettes sur la course 4*40 car on ne prend pas tous les jours de données.
+
+
+
+Test sur les moyennes
+```{r}
+# Liste des comparaisons de temps
+comparaisons <- list(
+  c("PRE", "POST"),
+  c("PRE", "D_2"),
+  c("PRE", "D_5"),
+  c("PRE", "D_10")
+)
+
+# Initialiser un data frame pour stocker les résultats des t-tests
+resultats_ttest <- data.frame(
+  course = character(),
+  variable = character(),
+  comparaison = character(),
+  p_value = numeric(),
+  mean_diff = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Boucle sur chaque course, chaque variable et chaque comparaison de temps
+for (course in unique(df_filtered$COURSE)) {
+  for (var in variables) {
+    for (comparaison in comparaisons) {
+      # Filtrer les données pour la course et les deux temps à comparer
+      data_course <- subset(df_filtered, COURSE == course & temps %in% comparaison)
+      
+      # Effectuer le t-test
+      ttest <- t.test(
+        data_course[[var]][data_course$temps == comparaison[1]],
+        data_course[[var]][data_course$temps == comparaison[2]],
+        paired = TRUE, # Test apparié car les mesures sont répétées
+        na.action = na.omit
+      )
+      
+      # Ajouter les résultats au data frame
+      resultats_ttest <- rbind(resultats_ttest, data.frame(
+        course = course,
+        variable = var,
+        comparaison = paste(comparaison, collapse = " vs "),
+        p_value = ttest$p.value,
+        mean_diff = ttest$estimate
+      ))
+    }
+  }
+}
+
+```
+
+Ajustement des p-valeurs
+```{r}
+# Correction de Benjamini-Yekutieli
+resultats_ttest$p_value_adj <- p.adjust(resultats_ttest$p_value, method = "BY")
+
+# Filtrer pour ne garder que les résultats significatifs après correction
+resultats_significatifs <- subset(resultats_ttest, p_value_adj < 0.05)
+
+# Afficher les résultats significatifs
+print(resultats_significatifs)
+```
+Nous avons garder dans ce tableau uniquement les p-valeurs qui sont significatives ajustées par la methode de BY. Nous testons l'hypothèse $H_0 : \mu_0 = \mu_1$ vs $H_0 : \mu_0 \ne \mu_1$. Nous  pouvons donc dire que pour les test affiché dans le tableau, les moyennes sont signicativement différentes. De plus, dans la colonne *mean_def*, la valeur est toujours négative ce qui signifie que la moyenne pretest est toujours plus élevé que la moyenne que nous comparons.
+
+
+Il faut maintenant que nous fassions des anovas.
+
+```{r}
+resultats_anova <- data.frame(
+  course = character(),
+  variable = character(),
+  F_value = numeric(),
+  p_value = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Boucle sur chaque course et chaque variable
+for (course in unique(df_filtered$COURSE)) {
+  for (var in variables) {
+    # Filtrer les données pour la course en question
+    data_course <- subset(df_filtered, COURSE == course)
+    
+    # Séparer les données PRE et POST pour cette variable
+    data_pre <- subset(data_course, temps == "PRE", select = c("CODE_SUJET", var))
+    data_post <- subset(data_course, temps == "POST", select = c("CODE_SUJET", var))
+    
+    # Renommer les colonnes pour éviter les conflits lors de la fusion
+    colnames(data_pre)[2] <- "PRE"
+    colnames(data_post)[2] <- "POST"
+    
+    # Fusionner les données PRE et POST par CODE_SUJET
+    data_merged <- merge(data_pre, data_post, by = "CODE_SUJET")
+    
+    # Vérifier qu'il y a au moins deux individus pour l'ANOVA
+    if (nrow(data_merged) > 1) {
+      # Effectuer l'ANOVA avec POST comme variable dépendante et PRE comme prédicteur
+      model <- aov(POST ~ PRE, data = data_merged)
+      
+      # Extraire la statistique F et la p-valeur
+      summary_model <- summary(model)
+      F_value <- summary_model[[1]]$`F value`[1]
+      p_value <- summary_model[[1]]$`Pr(>F)`[1]
+      
+      # Ajouter les résultats au data frame
+      resultats_anova <- rbind(resultats_anova, data.frame(
+        course = course,
+        variable = var,
+        F_value = F_value,
+        p_value = p_value
+      ))
+    }
+  }
+}
+
+```
+
+
+Comme précedemment, nous allons faire une corrections de p-values par la méthode de BY.
+
+```{r}
+# Correction de Benjamini-Yekutieli
+resultats_anova$p_value_adj <- p.adjust(resultats_anova$p_value, method = "BY")
+
+# Filtrer pour ne garder que les résultats significatifs après correction
+resultats_significatifs_aov <- subset(resultats_anova, p_value_adj < 0.05)
+
+# Afficher les résultats significatifs
+print(resultats_significatifs_aov)
+```
+
+
+
+
+
+
+
+
+
+Ne pas prendre en compte en dessous de ce trait
+
+----------------------------------------------------------
+Maintenant, on sépare notre jeu de données en 4 echantillons correspondant aux 4 courses
+
+
+```{r}
+course_100 <- subset(DATA, COURSE == "100")
+course_4_40 <- subset(DATA, COURSE == "4_40")
+course_40 <- subset(DATA, COURSE == "40")
+course_160 <- subset(DATA, COURSE == "160")
+```
+
+On a nos 4 data frame, on va commencer par regarder qq infos sur la course 160km
+
+```{r}
+df_long <- course_100 %>%
+  pivot_longer(
+    cols = ends_with(c("PRE", "POST", "2", "5", "10")),  # Sélection des colonnes d'intérêt
+    names_to = c("variable", "time"),                    # Crée des colonnes 'variable' et 'time'
+    names_pattern = "(.*)_(PRE|POST|2|5|10)",            # Sépare les noms en 'variable' et 'time'
+    values_to = "value"                                  # Stocke les valeurs dans la colonne 'value'
+  )
+```
+
+
+```{r}
+library(ggplot2)
+```
+
+
+```{r}
+# Créer un data frame pour ggplot
+df_mvgi_long <- course_100 %>%
+  select(CODE_SUJET,contains("MVGI")) %>%
+  pivot_longer(cols = -CODE_SUJET, names_to = "time", values_to = "mvgi_value") %>%
+  mutate(time = factor(time, levels = c("MVGI_PRE", "MVGI_POST", "MVGI_D_2", "MVGI_D_5", "MVGI_D_10")))
+
+# Visualiser l'évolution de mvgi pour chaque individu
+ggplot(df_mvgi_long, aes(x = time, y = mvgi_value, group = CODE_SUJET, color = as.factor(CODE_SUJET))) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Évolution de mvgi dans le temps pour chaque individu", x = "Temps", y = "Valeur de mvgi") +
+  theme_minimal() +
+  theme(legend.position = "none")  # Pour éviter d'avoir une légende trop large avec tous les IDs
+
+```
+On va faire une fonction qui va juste prendre en entrée le nom de la variable
+
+```{r}
+help_function<-function(df, var_name) { ## df est notre jeu de données, var_name ce qu'on veut analyser
+  
+  cols <- paste0(var_name, c("_PRE", "_POST", "_D_2", "_D_5", "_D_10"))
+  
+  # Créer un data frame pour ggplot
+  df_long <- df %>%
+    select(CODE_SUJET, all_of(cols)) %>%
+    pivot_longer(cols = -CODE_SUJET, names_to = "time", values_to = "value") %>%
+    mutate(value = na_if(value, -1)) %>%
+    mutate(time = factor(time, levels = cols))  # Ordre temporel correct
+
+  # Visualiser l'évolution de la variable pour chaque individu
+  ggplot(df_long, aes(x = time, y = value, group = CODE_SUJET, color = as.factor(CODE_SUJET))) +
+    geom_line() +
+    geom_point() +
+    labs(title = paste("Évolution de", var_name, "dans le temps pour chaque individu"), 
+         x = "Temps", 
+         y = paste("Valeur de", var_name)) +
+    theme_minimal() +
+    theme(legend.position = "none")  # Pour éviter une légende trop large avec tous les individus
+}
+```
+Test de la fonction
+
+```{r}
+help_function(course_100, "MVGI")
+```
+
+```{r}
+help_function(course_160, "FC")
+```
+
+Nouveau test
+```{r}
+help_function(course_100, "DTDVGI")
+```
+
+Et si on change de course
+```{r}
+help_function(course_160, "Ea")
+```
+
+
+
+```{r}
+# Créer la fonction
+moyenne <- function(df, var_name) {
+  
+  # Construire dynamiquement les noms de colonnes à partir de la variable donnée
+  cols <- paste0(var_name, c("_PRE", "_POST", "_D_2", "_D_5", "_D_10"))
+  
+  # Restructurer les données en long format et remplacer -1 par NA
+  df_long <- df %>%
+    select(COURSE, all_of(cols)) %>%  # Remplacez CODE_COURSE par le nom exact de la colonne représentant la course
+    pivot_longer(cols = -COURSE, names_to = "time", values_to = "value") %>%
+    mutate(value = na_if(value, -1)) %>%
+    mutate(time = factor(time, levels = cols))  # Ordre temporel correct
+
+# Remplacer les -1 par NA
+  
+  
+  # Calculer la moyenne pour chaque course à chaque moment
+  df_mean <- df_long %>%
+    group_by(COURSE, time) %>%  # Grouper par course et par moment dans le temps
+    summarize(mean_value = mean(value, na.rm = TRUE)) %>%  # Calculer la moyenne en ignorant les NA
+    ungroup()
+  
+  ggplot(df_mean, aes(x = time, y = mean_value, group = COURSE, color = as.factor(COURSE))) +
+    geom_line() +
+    geom_point() +
+    labs(title = paste("Évolution de la moyenne de", var_name, "par course"),
+         x = "Temps",
+         y = paste("Moyenne de", var_name),
+         color = "Course") +
+    theme_minimal() +
+    theme(legend.position = "right")  # Afficher la légende à droite
+}
+
+```
+
+
+```{r}
+moyenne(DATA, "Ea")
+```
+
+
+
+```{r}
+DATA$AGE<-as.numeric(DATA$AGE)
+moyenne_age <- DATA %>%
+  group_by(COURSE) %>%
+  summarise(moyenne_age = mean(AGE, na.rm = TRUE))
+```
+
+```{r}
+moyenne_age
+```
+
+
+
+
+
+
+
+

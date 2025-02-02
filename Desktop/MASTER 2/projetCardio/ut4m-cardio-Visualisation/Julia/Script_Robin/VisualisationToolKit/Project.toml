@@ -1,0 +1,11 @@
+[deps]
+AnovaGLM = "0a47a8e3-ec57-451e-bddb-e0be9d22772b"
+CategoricalArrays = "324d7699-5711-5eae-9e2f-1d82baa6b597"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+GLM = "38e38edf-8417-5370-95a0-9cbb8c7f171a"
+HypothesisTests = "09f84164-cd44-5f33-b23f-e6b0d136a0d5"
+MultipleTesting = "f8716d33-7c4a-5097-896f-ce0ecbd3ef6b"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+RDatasets = "ce6b1742-4840-55fa-b093-852dadbb1d8b"
+StableRNGs = "860ef19b-820b-49d6-a774-d7a799459cd3"
+XLSX = "fdbf4ff8-1666-58a4-91e7-1b58723a45e0"

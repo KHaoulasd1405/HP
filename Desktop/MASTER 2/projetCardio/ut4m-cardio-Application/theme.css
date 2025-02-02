@@ -1,0 +1,31 @@
+/* styles.css */
+.reveal .slides .logo {
+  position: absolute;
+  top: 20px;    /* Ajustez cette valeur pour la position verticale */
+  right: 20px;  /* Ajustez cette valeur pour la position horizontale */
+  width: 100px; /* Ajustez cette valeur pour la taille */
+  height: auto; /* Gardez cette valeur pour maintenir les proportions */
+}
+
+.centered-image-container {
+  width: 100%; /* Assure que le conteneur prend toute la largeur disponible */
+  text-align: center; /* Centre l'image horizontalement */
+}
+
+.centered-image {
+  width: 100%; /* Assure que l'image prend toute la largeur du conteneur */
+  max-width: 100%; /* Empêche l'image de dépasser la largeur du conteneur */
+}
+
+table {
+  font-size: 28px; /* Réduit la taille de la police */
+  border-collapse: collapse; /* Fusionne les bordures des cellules */
+  width: 70%; /* Assure que le tableau prend toute la largeur disponible */
+  border: 1px solid #ddd; /* Ajoute une bordure autour du tableau */
+}
+
+th, td {
+  padding: 5px; /* Réduit le padding des cellules */
+  text-align: center; /* Centre le texte dans les cellules */
+  border: 1px solid #ddd; /* Ajoute une bordure fine aux cellules */
+}

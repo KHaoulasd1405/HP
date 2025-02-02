@@ -1,0 +1,8 @@
+/* styles.css */
+.reveal .slides .logo {
+  position: absolute;
+  top: 20px;    /* Ajustez cette valeur pour la position verticale */
+  right: 20px;  /* Ajustez cette valeur pour la position horizontale */
+  width: 100px; /* Ajustez cette valeur pour la taille */
+  height: auto; /* Gardez cette valeur pour maintenir les proportions */
+}

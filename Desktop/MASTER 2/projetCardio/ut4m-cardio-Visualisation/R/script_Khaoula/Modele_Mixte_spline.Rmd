@@ -1,0 +1,627 @@
+---
+title: "PROJET TUTORE (M2 SSD)"
+author: "Saoudi Khaoula  "
+date: "2025-01-13"
+output:
+  pdf_document: default
+  latex_engine: xelatex
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning=FALSE)
+```
+
+# Analyse descriptives - UT4M Cardio
+
+L’objectif de ce script est de proposer des visuels permettant de se familiariser avec des données UT4M sur le comportement cardiaques des utltra-trailers.Nous allons tout d’abord analyser, course par course, l’évolution temporelle des paramètres physiologiques pour identifier des variations significatives.
+Ensuite, nous comparerons les données entre différentes courses afin de mettre en évidence les différences liées aux distances parcourues.
+
+
+## Les bibliothèques nécessaires
+
+```{r, echo=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readxl)
+library(stringr)
+library(tibble)  
+library(broom)
+library(zoo)
+library(splines)
+library(tidyverse)
+library(gtools)  
+library(lme4)
+library(splines)
+library(ggplot2)
+library(dplyr)
+
+```
+
+
+# Import et traitement des données
+
+## Importation des données
+
+Dans cette première étape, nous importons les données de la feuille 'Tableau_gl_new' du fichier Excel contenant les informations complètes de l'étude UT4M.
+
+```{r, echo=FALSE, message=FALSE}
+
+data <- read_excel ("Données complètes UT4M final120419 avec Data cardio.xlsx", sheet = "Tableau_gl_new")
+head(data)
+```
+
+## Renommer les variables "VOL_ODI_PRE" "VOL_OGI_PRE"
+
+```{r, echo=FALSE, message=FALSE}
+# Renommer les colonnes spécifiées
+names(data) <- gsub("VOL_ODI_PRE", "VOLODI_PRE", names(data))
+names(data) <- gsub("VOL_OGI_PRE", "VOLOGI_PRE", names(data))
+names(data) <- gsub("VOL_OD_PRE", "VOLOD_PRE", names(data))
+names(data) <- gsub("VOL_OG_PRE", "VOLOG_PRE", names(data))
+
+
+```
+
+## Sélection des colonnes d'intérêt
+
+Dans cette étape, nous allons sélectionner les variables d'intérêt dans notre jeu de données. Il s'agit des mesures physiologiques clés associées à différents moments.
+```{r, echo=FALSE, message=FALSE}
+#les colonnes spécifiques 
+data_selected <- data %>%
+  select(COURSE, CODE_SUJET, matches("^(VTSVGI|VTDVGI|STSi|FE2D|STDi|VOLOGI|VOLODI|FC)_(PRE|POST|D_2|D_5|D_10)$"))
+head(data_selected)
+
+```
+
+## Le nombre d'individus par course
+
+```{r, echo=FALSE, message=FALSE}
+# le nombre d'individus par course
+nombre_individus_par_course <- data_selected %>%
+  group_by(COURSE) %>%  
+  summarise(Nombre_Individus = n_distinct(CODE_SUJET))  
+
+print(nombre_individus_par_course)
+```
+
+
+## Remplacement des valeurs temporelles et des -1 par NA
+
+Dans cette étape, nous remplacons  les absent et case ou il ya aucune echo par des valeurs manquantes (NA).
+
+```{r, echo=FALSE, message=FALSE}
+data_selected1 <- data_selected %>%
+  mutate(across(where(is.character), ~ na_if(.x, "absent"))) %>%
+  mutate(across(where(is.character), ~ na_if(.x, "aucune écho")))
+
+```
+
+
+
+```{r, echo=FALSE, message=FALSE}
+# Fonction pour remplacer les valeurs temporelles dans les noms de colonnes et nettoyer les numéros 
+replace_time_values <- function(df) {
+  
+  colnames(df) <- colnames(df) %>%
+    gsub("_PRE.*$", "_-2", .) %>%   # Remplace "PRE" par "-2" et supprime tout ce qui suit
+    gsub("_POST.*$", "_1", .) %>%  # Remplace "POST" par "1" et supprime tout ce qui suit
+    gsub("_D_2.*$", "_3", .) %>%   # Remplace "D_2" par "3" et supprime tout ce qui suit
+    gsub("_D_5.*$", "_6", .) %>%   # Remplace "D_5" par "6" et supprime tout ce qui suit
+    gsub("_D_10.*$", "_11", .)     # Remplace "D_10" par "11" et supprime tout ce qui suit
+  
+  # Remplaçons -1 par NA dans tout le dataset
+  df[df == -1] <- NA
+  
+  return(df)
+}
+
+data_replaced <- replace_time_values(data_selected1)
+```
+
+## Renommer CODE_SUJET en Individu
+
+```{r, echo=FALSE, message=FALSE}
+data_replaced <- data_replaced %>%
+  group_by(COURSE) %>%
+  mutate(CODE_SUJET = paste("Individu", row_number())) %>%
+  ungroup()
+
+```
+
+## Transformation des données en format long
+
+Ici, nous transformons les données de format large à format long tout en conservant certaines colonnes, comme 'CODE_SUJET' et 'COURSE'.
+
+```{r, echo=FALSE, message=FALSE}
+data_long <- data_replaced %>%
+  pivot_longer(
+    cols = -c(COURSE, CODE_SUJET), 
+    names_to = "Variable",
+    values_to = "Valeur" 
+  ) %>%
+  separate(Variable, into = c("Variable", "Temps"), sep = "_", extra = "merge") 
+head(data_long)
+
+
+```
+
+## Résumés statistiques
+
+Réalisons maintenant les résumés statistiques sur nos 8 variables d’intérêt.
+
+```{r, echo=FALSE, message=FALSE}
+# Convertir la colonne 'Valeur' en numérique (en remplaçant les non numériques par NA)
+data_long <- data_long %>%
+  mutate(Valeur = as.numeric(Valeur))
+
+# Résumés statistiques par variable et par course
+statistical_summaries <- data_long %>%
+  group_by(COURSE, Variable) %>%  
+  summarise(
+    Count = n(),  
+    Missing = sum(is.na(Valeur)),  
+    Min = min(Valeur, na.rm = TRUE),  
+    Q1 = quantile(Valeur, 0.25, na.rm = TRUE), 
+    Median = median(Valeur, na.rm = TRUE), 
+    Mean = mean(Valeur, na.rm = TRUE),  
+    Q3 = quantile(Valeur, 0.75, na.rm = TRUE),  
+    Max = max(Valeur, na.rm = TRUE), 
+    Missing_Percentage = round(Missing / Count * 100, 2)  
+  ) %>%
+  ungroup()  
+
+
+print(statistical_summaries)
+```
+
+
+
+## Les valeurs manquantes 
+
+Dans cette section, nous allons compter les valeurs manquantes en prenant en compte les courses, les vistes et les individus.
+
+
+
+```{r, echo=FALSE, message=FALSE}
+missing_percentage_by_variable <- data_long %>%
+  group_by(Variable) %>%
+  summarise(
+    total_values = n(), 
+    total_missing = sum(is.na(Valeur)),  
+    percentage_missing = (total_missing / total_values) * 100  
+  )
+
+print("Pourcentage de valeurs manquantes par variable :")
+print(missing_percentage_by_variable)
+
+
+```
+Le nombre de données manquantes par visite et par variable cardiaque :
+
+```{r, echo=FALSE, message=FALSE}
+missing_data_summary <- data_long %>%
+  group_by(Temps, Variable) %>%
+  summarise(Missing_Count = sum(is.na(Valeur)), .groups = 'drop')
+
+missing_data_pivot <- missing_data_summary %>%
+  pivot_wider(names_from = Variable, values_from = Missing_Count, values_fill = list(Missing_Count = 0))
+
+print(missing_data_pivot)
+
+
+```
+Le nombre de données manquantes par course et par variable cardiaque :
+
+```{r, echo=FALSE, message=FALSE}
+missing_data_summary <- data_long %>%
+  group_by(COURSE, Variable) %>%  
+  summarise(
+    Missing_Count = sum(is.na(Valeur)),  
+    .groups = 'drop'
+  )
+
+
+missing_data_pivot <- missing_data_summary %>%
+  pivot_wider(
+    names_from = COURSE,  
+    values_from = Missing_Count,  
+    values_fill = list(Missing_Count = 0)  
+  )
+
+print(missing_data_pivot)
+
+```
+
+
+# Visualisation
+
+## Représentations graphiques
+
+Nous allons créer des spaghetti plots pour visualiser l'évolution des variables cardiaques (comme la fréquence cardiaque et la pression artérielle) en fonction du temps, pour différentes courses (100 km, 4x40 km, 40 km, 160 km). Chaque sujet sera représenté par une courbe individuelle avec des points aux moments clés (PRE, POST, D2, D5, D10), et nous ajouterons une courbe moyenne en noir pour illustrer la tendance générale pour tous les sujets. Nous commencerons par filtrer les données selon la variable et la course, puis nous générerons les graphiques avec des courbes colorées pour chaque sujet et des points pour indiquer les valeurs spécifiques à chaque instant temporel.
+
+
+
+```{r, echo=FALSE, message=FALSE}
+
+create_spaghetti_plot <- function(data_long, variable, course) {
+  data_filtered <- data_long %>% 
+    filter(Variable == variable, COURSE == course)
+  
+  data_filtered <- data_filtered %>%
+    mutate(Temps_Label = factor(Temps, levels = c(-2, 1, 3, 6, 11),
+                                labels = c("PRE", "POST", "D2", "D5", "D10")))
+  
+
+  data_filtered <- data_filtered %>%
+    group_by(CODE_SUJET) %>%
+    mutate(Valeur = na.approx(Valeur, na.rm = FALSE)) %>%
+    ungroup()
+  
+  ordered_sujets <- mixedsort(unique(data_filtered$CODE_SUJET))
+  data_filtered$CODE_SUJET <- factor(data_filtered$CODE_SUJET, levels = ordered_sujets)
+  sujet_colors <- rainbow(n = length(ordered_sujets))
+  sujet_colors <- c(sujet_colors, "black") 
+
+  # spaghetti plot avec une couleur distincte par sujet et la courbe moyenne en noir
+  ggplot(data_filtered, aes(x = Temps_Label, y = Valeur, group = CODE_SUJET, color = CODE_SUJET)) +
+    geom_line(alpha = 0.7, size = 1) +  
+    geom_point(alpha = 0.9, size = 2) + 
+    stat_summary(fun = mean, geom = "line", aes(group = 1, color = "Moyenne"), size = 1.5) +  
+    stat_summary(fun = mean, geom = "point", aes(group = 1, color = "Moyenne"), size = 3) +  
+    scale_color_manual(values = setNames(c(sujet_colors, "black"), c(ordered_sujets, "Moyenne"))) + 
+    labs(title = paste("Spaghetti plot for", variable, "during", course, "km race"),
+         x = "Time Points", y = "Value", color = "Code Sujet") +
+    theme_minimal() +
+    theme(legend.position = "right")  
+}
+
+```
+
+Représentations visuelles des variables d’intérêts
+Voici les spaghettis plot pour toutes les variables d’intérêt pour la course 100km 
+
+```{r, echo=FALSE, message=FALSE}
+#create_spaghetti_plot(data_long, "VTSVGI", 100)
+#create_spaghetti_plot(data_long, "VTDVGI", 100)
+
+#create_spaghetti_plot(data_long, "FE2D", 100)
+
+#create_spaghetti_plot(data_long, "VOLOGI", 100)
+
+#create_spaghetti_plot(data_long, "VOLODI", 100)
+#create_spaghetti_plot(data_long, "STSi", 100)
+#create_spaghetti_plot(data_long, "STDi", 100)
+```
+
+## Analyse statistique :
+
+### Test Mann-Whitney entre 40 et 100 
+
+
+
+```{r, echo=FALSE, message=FALSE}
+# Comparer POST entre 40 km et 100 km
+mann_whitney_40_100 <- data_long %>%
+  filter(Temps == 1, COURSE %in% c("40", "100")) %>%  # Filtrer POST et les deux courses
+  group_by(Variable) %>%
+  summarise(
+    p_value = wilcox.test(
+      Valeur[COURSE == "40"],  
+      Valeur[COURSE == "100"], 
+      alternative = "two.sided",  
+      exact = FALSE
+    )$p.value,
+    .groups = "drop"
+  )
+
+# Appliquer les corrections BH et BY
+mann_whitney_40_100 <- mann_whitney_40_100 %>%
+  mutate(
+    p_value_BH = p.adjust(p_value, method = "BH"),  # Correction Benjamini-Hochberg
+    p_value_BY = p.adjust(p_value, method = "BY")   # Correction Benjamini-Yekutieli
+  )
+
+print("Résultats du test de Mann-Whitney (POST entre 40 km et 100 km) avec corrections BH et BY :")
+print(mann_whitney_40_100)
+
+```
+### Test Mann-Whitney entre 40 et 160
+
+```{r, echo=FALSE, message=FALSE}
+# Comparer POST entre 40 km et 160 km
+mann_whitney_40_160 <- data_long %>%
+  filter(Temps == 1, COURSE %in% c("40", "160")) %>%  # Filtrer POST et les deux courses
+  group_by(Variable) %>%
+  summarise(
+    p_value = wilcox.test(
+      Valeur[COURSE == "40"],  
+      Valeur[COURSE == "160"], 
+      alternative = "two.sided",  
+      exact = FALSE
+    )$p.value,
+    .groups = "drop"
+  )
+
+# les corrections BH et BY
+mann_whitney_40_160 <- mann_whitney_40_160 %>%
+  mutate(
+    p_value_BH = p.adjust(p_value, method = "BH"),  # Correction Benjamini-Hochberg
+    p_value_BY = p.adjust(p_value, method = "BY")   # Correction Benjamini-Yekutieli
+  )
+
+print("Résultats du test de Mann-Whitney (POST entre 40 km et 160 km) avec corrections BH et BY :")
+print(mann_whitney_40_160)
+
+```
+### Test Mann-Whitney entre 100 et 160
+
+```{r, echo=FALSE, message=FALSE}
+# Comparaison POST entre 100 km et 160 km
+mann_whitney_100_160 <- data_long %>%
+  filter(Temps == 1, COURSE %in% c("100", "160")) %>% 
+  group_by(Variable) %>%
+  summarise(
+    p_value = wilcox.test(
+      Valeur[COURSE == "100"],  
+      Valeur[COURSE == "160"], 
+      alternative = "two.sided",  
+      exact = FALSE
+    )$p.value,
+    .groups = "drop"
+  )
+
+# les corrections BH et BY
+mann_whitney_100_160 <- mann_whitney_100_160 %>%
+  mutate(
+    p_value_BH = p.adjust(p_value, method = "BH"),  # Correction Benjamini-Hochberg
+    p_value_BY = p.adjust(p_value, method = "BY")   # Correction Benjamini-Yekutieli
+  )
+
+
+print("Résultats du test de Mann-Whitney (POST entre 100 km et 160 km) avec corrections BH et BY :")
+print(mann_whitney_100_160)
+
+```
+
+
+```{r, echo=FALSE, message=FALSE}
+combined_results <- bind_rows(
+  mann_whitney_40_100 %>% mutate(Comparison = "40 vs 100"),
+  mann_whitney_40_160 %>% mutate(Comparison = "40 vs 160"),
+  mann_whitney_100_160 %>% mutate(Comparison = "100 vs 160")
+)
+
+# les p-valeurs corrigées (BH et BY)
+combined_results_long <- combined_results %>%
+  pivot_longer(
+    cols = starts_with("p_value"),  
+    names_to = "Correction",
+    values_to = "P_Value"
+  )
+
+
+```
+
+```{r, echo=FALSE, message=FALSE}
+# Visualisation des p-valeurs corrigées par variable pour les trois comparaisons
+ggplot(combined_results_long, aes(x = Variable, y = P_Value, fill = Correction)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ Comparison, scales = "free_x") + 
+  theme_minimal() +
+  labs(
+    title = "P-valeurs corrigées (par variable) pour chaque comparaison",
+    x = "Variable",
+    y = "P-Value corrigée"
+  ) +
+  geom_hline(yintercept = 0.05, color = "red", linetype = "dashed") +  # Seuil de significativité
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+## Test de Wilcoxon pour les Comparaisons Intra-Course (PRE vs POST)
+
+```{r, echo=FALSE, message=FALSE}
+# Comparaison PRE vs POST pour la course 40 km
+wilcoxon_40 <- data_long %>%
+  filter(COURSE == "40", Temps %in% c(-2, 1)) %>%  # course 40 km et les moments PRE/POST
+  pivot_wider(names_from = Temps, values_from = Valeur) %>%  
+  group_by(Variable) %>%
+  summarise(
+    p_value = wilcox.test(`-2`, `1`, paired = TRUE, exact = FALSE)$p.value,  # Test de Wilcoxon
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_value_BH = p.adjust(p_value, method = "BH"),  # Correction Benjamini-Hochberg
+    p_value_BY = p.adjust(p_value, method = "BY")   # Correction Benjamini-Yekutieli
+  )
+
+# Comparaison PRE vs POST pour la course 100 km
+wilcoxon_100 <- data_long %>%
+  filter(COURSE == "100", Temps %in% c(-2, 1)) %>%
+  pivot_wider(names_from = Temps, values_from = Valeur) %>%
+  group_by(Variable) %>%
+  summarise(
+    p_value = wilcox.test(`-2`, `1`, paired = TRUE, exact = FALSE)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_value_BH = p.adjust(p_value, method = "BH"),
+    p_value_BY = p.adjust(p_value, method = "BY")
+  )
+
+# Comparaison PRE vs POST pour la course 160 km
+wilcoxon_160 <- data_long %>%
+  filter(COURSE == "160", Temps %in% c(-2, 1)) %>%
+  pivot_wider(names_from = Temps, values_from = Valeur) %>%
+  group_by(Variable) %>%
+  summarise(
+    p_value = wilcox.test(`-2`, `1`, paired = TRUE, exact = FALSE)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_value_BH = p.adjust(p_value, method = "BH"),
+    p_value_BY = p.adjust(p_value, method = "BY")
+  )
+
+print("Résultats du test de Wilcoxon (PRE vs POST) pour 40 km :")
+print(wilcoxon_40)
+
+print("Résultats du test de Wilcoxon (PRE vs POST) pour 100 km :")
+print(wilcoxon_100)
+
+print("Résultats du test de Wilcoxon (PRE vs POST) pour 160 km :")
+print(wilcoxon_160)
+
+```
+
+```{r, echo=FALSE, message=FALSE}
+# Combiner les résultats des trois courses
+combined_wilcoxon <- bind_rows(
+  wilcoxon_40 %>% mutate(Course = "40 km"),
+  wilcoxon_100 %>% mutate(Course = "100 km"),
+  wilcoxon_160 %>% mutate(Course = "160 km")
+)
+
+
+
+combined_wilcoxon_long <- combined_wilcoxon %>%
+  pivot_longer(
+    cols = starts_with("p_value"),  
+    names_to = "Correction",
+    values_to = "P_Value"
+  )
+
+# Visualiser les résultats
+ggplot(combined_wilcoxon_long, aes(x = Variable, y = P_Value, fill = Correction)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ Course, scales = "free_x") +  
+  theme_minimal() +
+  labs(
+    title = "P-valeurs corrigées (PRE vs POST) par course et variable",
+    x = "Variable",
+    y = "P-Value corrigée"
+  ) +
+  geom_hline(yintercept = 0.05, color = "red", linetype = "dashed") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+### Modèle mixte avec splines
+
+On va ajuster un modèle mixte pour analyser l'évolution temporelle des paramètres physiologiques des ultra-traileurs. Ce modèle inclut :
+
+- **Des splines naturelles** pour capturer les variations non linéaires dans le temps.
+- **Un effet fixe** pour comparer les différentes courses.
+- **Un effet aléatoire** pour tenir compte des spécificités individuelles de chaque participant.
+
+L'objectif est de mieux comprendre comment ces paramètres évoluent en fonction du temps et de la distance parcourue, tout en intégrant la variabilité intra-individuelle.
+
+
+```{r, echo=FALSE, message=FALSE}
+library(lme4)
+library(splines)
+library(ggplot2)
+library(dplyr)
+
+# fonction
+run_mixed_model <- function(data, variable, df_spline = 4) {
+ 
+  if (!variable %in% unique(data$Variable)) {
+    stop("La variable spécifiée n'est pas présente dans les données.")
+  }
+  
+  # Filtrer les données pour la variable sélectionnée
+  data_filtered <- data %>%
+    filter(Variable == variable & !is.na(Valeur) & !is.na(Temps) & !is.na(CODE_SUJET))
+  
+ 
+  if (nrow(data_filtered) < 2) {
+    stop("Pas assez de données pour ajuster le modèle.")
+  }
+  
+  # Ajuster le modèle mixte avec splines
+  model <- lmer(
+    Valeur ~ ns(Temps, df = df_spline) + COURSE + (1 | CODE_SUJET),
+    data = data_filtered
+  )
+  
+  # Résumé du modèle
+  model_summary <- summary(model)
+  
+  # Graphique de la tendance temporelle
+  trend_plot <- ggplot(data_filtered, aes(x = Temps, y = Valeur, color = as.factor(COURSE))) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", formula = y ~ ns(x, df = df_spline), se = FALSE, color = "blue") +
+    theme_minimal() +
+    labs(
+      title = paste("Tendance temporelle pour", variable),
+      x = "Temps",
+      y = "Valeur",
+      color = "Course"
+    )
+  
+  # Histogramme des valeurs ajustées
+  hist_plot <- ggplot(data_filtered, aes(x = predict(model))) +
+    geom_histogram(binwidth = 0.5, fill = "blue", alpha = 0.7) +
+    theme_minimal() +
+    labs(
+      title = "Histogramme des valeurs ajustées",
+      x = "Valeurs ajustées",
+      y = "Fréquence"
+    )
+  
+  # Graphique des résidus
+  res_plot <- ggplot(data_filtered, aes(x = predict(model), y = residuals(model))) +
+    geom_point(alpha = 0.6, color = "red") +
+    theme_minimal() +
+    labs(
+      title = "Graphique des résidus",
+      x = "Valeurs ajustées",
+      y = "Résidus"
+    )
+  
+
+  list(
+    model = model,
+    model_summary = model_summary,
+    coef_table = as.data.frame(model_summary$coefficients),
+    trend_plot = trend_plot,
+    hist_plot = hist_plot,
+    res_plot = res_plot
+  )
+}
+
+
+```
+
+
+
+```{r, echo=FALSE, message=FALSE}
+data_long <- data_long %>%
+  mutate(
+    Temps = as.numeric(Temps),      
+    CODE_SUJET = as.factor(CODE_SUJET) 
+  ) %>%
+  filter(!is.na(Valeur))             
+
+# Appeler la fonction
+results <- run_mixed_model(data_long, variable = "FC", df_spline = 4)
+
+# Affichage des résultats
+tryCatch({
+  print(results$model_summary)
+  print(results$coef_table)
+  print(results$trend_plot)
+  print(results$hist_plot)
+  print(results$res_plot)
+}, error = function(e) {
+  print(paste("Erreur : ", e$message))
+})
+
+
+```
+
